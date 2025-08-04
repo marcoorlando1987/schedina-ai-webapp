@@ -31,6 +31,12 @@ DATA_CODES = {
 }
 
 SEASONS = ["2122", "2223", "2324", "2425"]
+SEASON_WEIGHTS = {
+    "2122": 0.5,
+    "2223": 0.7,
+    "2324": 0.9,
+    "2425": 1.0
+}
 
 # === FUNZIONE: Carica dati storici ===
 def load_historical_data():
@@ -41,11 +47,12 @@ def load_historical_data():
             try:
                 df = pd.read_csv(url)
                 df["League"] = name
+                df["Season"] = season
                 dfs.append(df)
             except:
                 continue
     df = pd.concat(dfs, ignore_index=True)
-    df = df[['League', 'HomeTeam', 'AwayTeam', 'FTR', 'FTHG', 'FTAG']].dropna()
+    df = df[['League', 'HomeTeam', 'AwayTeam', 'FTR', 'FTHG', 'FTAG', 'Season']].dropna()
     df['TotalGoals'] = df['FTHG'] + df['FTAG']
     df['TotalGoals'] = df['TotalGoals'].clip(upper=6)
     return df
@@ -64,12 +71,15 @@ def train_models(df):
     y1 = df['FTR'].map({'H': 0, 'D': 1, 'A': 2})
     y2 = df['TotalGoals']
 
+    # Calcolo dei pesi
+    weights = df['Season'].map(SEASON_WEIGHTS).fillna(0.5)
+
     X_train, _, y1_train, _, y2_train, _ = train_test_split(X, y1, y2, test_size=0.2, random_state=42)
 
     model_1x2 = XGBClassifier(use_label_encoder=False, eval_metric='mlogloss')
     model_gol = XGBClassifier(use_label_encoder=False, eval_metric='mlogloss')
-    model_1x2.fit(X_train, y1_train)
-    model_gol.fit(X_train, y2_train)
+    model_1x2.fit(X_train, y1_train, sample_weight=weights.loc[X_train.index])
+    model_gol.fit(X_train, y2_train, sample_weight=weights.loc[X_train.index])
 
     return model_1x2, model_gol, le_home, le_away, le_league
 
@@ -155,4 +165,3 @@ def run_schedina_ai(date_str):
     except Exception as e:
         print(f"Errore durante l'esecuzione del modello: {e}")
         return pd.DataFrame()
-
