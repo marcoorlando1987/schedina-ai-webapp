@@ -168,6 +168,7 @@ def run_schedina_ai(date_str):
         df_hist = load_historical_data()
         model_1x2, model_gol, le_home, le_away, le_league = load_or_train_models(df_hist)
         df_matches = get_matches_by_date(date_str)
+        print(f"🎯 Partite scaricate: {len(df_matches)}")
 
         print(f"🎯 Partite scaricate: {len(df_matches)}")
         print("👀 Squadre HOME:", df_matches['HomeTeam'].unique())
