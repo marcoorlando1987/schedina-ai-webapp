@@ -169,9 +169,9 @@ def run_schedina_ai(date_str):
         model_1x2, model_gol, le_home, le_away, le_league = load_or_train_models(df_hist)
         df_matches = get_matches_by_date(date_str)
 
-        st.text(f"🎯 Partite scaricate: {len(df_matches)}")
-        st.text(f"👀 Squadre HOME: {df_matches['HomeTeam'].unique()}")
-        st.text(f"👀 Squadre AWAY: {df_matches['AwayTeam'].unique()}")
+        print(f"🎯 Partite scaricate: {len(df_matches)}")
+        print("👀 Squadre HOME:", df_matches['HomeTeam'].unique())
+        print("👀 Squadre AWAY:", df_matches['AwayTeam'].unique())
 
         if df_matches.empty:
             return pd.DataFrame()
@@ -180,19 +180,22 @@ def run_schedina_ai(date_str):
         away_ref = df_hist['AwayTeam'].unique()
         df_matches, map_home = fuzzy_match_teams(df_matches, home_ref, 'HomeTeam', threshold=80)
         df_matches, map_away = fuzzy_match_teams(df_matches, away_ref, 'AwayTeam', threshold=80)
-
-        st.text(f"📘 Mapping HOME: {map_home}")
-        st.text(f"📕 Mapping AWAY: {map_away}")
+        print("📘 Mapping HOME:", map_home)
+        print("📕 Mapping AWAY:", map_away)
 
         df_valid = df_matches[
             df_matches['HomeTeam'].isin(le_home.classes_) &
             df_matches['AwayTeam'].isin(le_away.classes_) &
             df_matches['League'].isin(le_league.classes_)
-        ].copy()
+        ].reset_index(drop=True)
 
-        skipped = df_matches[~df_matches.index.isin(df_valid.index)][['HomeTeam', 'AwayTeam']].values.tolist()
-        if skipped:
-            st.warning(f"⛔ Squadre escluse perché non riconosciute dai modelli: {skipped}")
+        escluse = [
+            [row['HomeTeam'], row['AwayTeam']]
+            for _, row in df_matches.iterrows()
+            if row['HomeTeam'] not in le_home.classes_ or row['AwayTeam'] not in le_away.classes_ or row['League'] not in le_league.classes_
+        ]
+        if escluse:
+            print("⛔ Squadre escluse perché non riconosciute dai modelli:", escluse)
 
         if df_valid.empty:
             return pd.DataFrame()
@@ -207,7 +210,7 @@ def run_schedina_ai(date_str):
         pred_gol = model_gol.predict(X_pred)
 
         inv_map = {0: 'H', 1: 'D', 2: 'A'}
-        df_valid['Esito_1X2'] = pd.Series(pred_1x2_raw, index=df_valid.index).map(inv_map)
+        df_valid['Esito_1X2'] = pd.Series(pred_1x2_raw).map(inv_map)
         df_valid['Gol_Previsti'] = pred_gol
         df_valid['Confidenza'] = conf_1x2
         df_valid['UTCDate'] = pd.to_datetime(df_valid['UTCDate']).dt.tz_localize(None)
@@ -219,5 +222,5 @@ def run_schedina_ai(date_str):
         return schedina[['League', 'HomeTeam', 'AwayTeam', 'Esito_1X2', 'Gol_Previsti', 'Confidenza', 'UTCDate']]
 
     except Exception as e:
-        st.error(f"❌ Errore durante l'esecuzione del modello: {e}")
+        print(f"Errore durante l'esecuzione del modello: {e}")
         return pd.DataFrame()
