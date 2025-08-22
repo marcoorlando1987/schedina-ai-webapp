@@ -43,6 +43,7 @@ SEASON_WEIGHTS = {
 MODEL_1X2_FILE = "model_1x2.joblib"
 MODEL_GOL_FILE = "model_gol.joblib"
 ENCODERS_FILE = "encoders.joblib"
+
 DB_FILE = "schedina_ai.db"
 
 def init_db():
@@ -179,45 +180,39 @@ def run_schedina_ai(date_str):
         away_ref = df_hist['AwayTeam'].unique()
         df_matches, map_home = fuzzy_match_teams(df_matches, home_ref, 'HomeTeam', threshold=80)
         df_matches, map_away = fuzzy_match_teams(df_matches, away_ref, 'AwayTeam', threshold=80)
+
         st.text(f"📘 Mapping HOME: {map_home}")
         st.text(f"📕 Mapping AWAY: {map_away}")
 
-        # Rimozione righe con squadre non trasformabili
-        valid_rows = []
-        dropped_teams = []
-        for i, row in df_matches.iterrows():
-            try:
-                le_home.transform([row['HomeTeam']])
-                le_away.transform([row['AwayTeam']])
-                le_league.transform([row['League']])
-                valid_rows.append(i)
-            except ValueError:
-                dropped_teams.append((row['HomeTeam'], row['AwayTeam']))
+        df_valid = df_matches[
+            df_matches['HomeTeam'].isin(le_home.classes_) &
+            df_matches['AwayTeam'].isin(le_away.classes_) &
+            df_matches['League'].isin(le_league.classes_)
+        ].copy()
 
-        if dropped_teams:
-            st.warning(f"⛔ Squadre escluse perché non riconosciute dai modelli: {dropped_teams}")
+        skipped = df_matches[~df_matches.index.isin(df_valid.index)][['HomeTeam', 'AwayTeam']].values.tolist()
+        if skipped:
+            st.warning(f"⛔ Squadre escluse perché non riconosciute dai modelli: {skipped}")
 
-        df_matches = df_matches.loc[valid_rows].reset_index(drop=True)
-
-        if df_matches.empty:
+        if df_valid.empty:
             return pd.DataFrame()
 
-        df_matches['Home_enc'] = le_home.transform(df_matches['HomeTeam'])
-        df_matches['Away_enc'] = le_away.transform(df_matches['AwayTeam'])
-        df_matches['League_enc'] = le_league.transform(df_matches['League'])
+        df_valid['Home_enc'] = le_home.transform(df_valid['HomeTeam'])
+        df_valid['Away_enc'] = le_away.transform(df_valid['AwayTeam'])
+        df_valid['League_enc'] = le_league.transform(df_valid['League'])
 
-        X_pred = df_matches[['Home_enc', 'Away_enc', 'League_enc']]
+        X_pred = df_valid[['Home_enc', 'Away_enc', 'League_enc']]
         pred_1x2_raw = model_1x2.predict(X_pred)
         conf_1x2 = model_1x2.predict_proba(X_pred).max(axis=1)
         pred_gol = model_gol.predict(X_pred)
 
         inv_map = {0: 'H', 1: 'D', 2: 'A'}
-        df_matches['Esito_1X2'] = pd.Series(pred_1x2_raw).map(inv_map)
-        df_matches['Gol_Previsti'] = pred_gol
-        df_matches['Confidenza'] = conf_1x2
-        df_matches['UTCDate'] = pd.to_datetime(df_matches['UTCDate']).dt.tz_localize(None)
+        df_valid['Esito_1X2'] = pd.Series(pred_1x2_raw, index=df_valid.index).map(inv_map)
+        df_valid['Gol_Previsti'] = pred_gol
+        df_valid['Confidenza'] = conf_1x2
+        df_valid['UTCDate'] = pd.to_datetime(df_valid['UTCDate']).dt.tz_localize(None)
 
-        schedina = df_matches.sort_values(by='Confidenza', ascending=False)
+        schedina = df_valid.sort_values(by='Confidenza', ascending=False)
 
         salva_predizioni_su_db(schedina)
 
