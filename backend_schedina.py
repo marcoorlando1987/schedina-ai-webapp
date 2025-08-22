@@ -5,6 +5,7 @@ from xgboost import XGBClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
 from rapidfuzz import process
+import sqlite3
 import warnings
 import streamlit as st
 warnings.filterwarnings("ignore")
@@ -38,6 +39,41 @@ SEASON_WEIGHTS = {
     "2425": 1.0,
     "2526": 1.3
 }
+
+# === DB ===
+DB_FILE = "schedina_ai.db"
+
+def init_db():
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS predictions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            league TEXT,
+            home_team TEXT,
+            away_team TEXT,
+            result TEXT,
+            goals INTEGER,
+            confidence REAL,
+            match_date TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+def salva_predizioni_su_db(df):
+    conn = sqlite3.connect(DB_FILE)
+    df_to_save = df.copy()
+    df_to_save.columns = ['league', 'home_team', 'away_team', 'result', 'goals', 'confidence', 'match_date']
+    df_to_save.to_sql("predictions", conn, if_exists="append", index=False)
+    conn.close()
+
+def leggi_predizioni_da_db():
+    conn = sqlite3.connect(DB_FILE)
+    df = pd.read_sql_query("SELECT * FROM predictions ORDER BY created_at DESC", conn)
+    conn.close()
+    return df
 
 # === FUNZIONE: Carica dati storici ===
 def load_historical_data():
@@ -85,7 +121,7 @@ def train_models(df):
     return model_1x2, model_gol, le_home, le_away, le_league
 
 # === FUNZIONE: Fuzzy matching automatico
-def fuzzy_match_teams(df_matches, reference_teams, column, threshold=85):
+def fuzzy_match_teams(df_matches, reference_teams, column, threshold=90):
     mapping = {}
     unique_teams = df_matches[column].unique()
     for team in unique_teams:
@@ -118,6 +154,7 @@ def get_matches_by_date(input_date_str):
 # === FUNZIONE PRINCIPALE ===
 def run_schedina_ai(date_str):
     try:
+        init_db()
         df_hist = load_historical_data()
         model_1x2, model_gol, le_home, le_away, le_league = train_models(df_hist)
         df_matches = get_matches_by_date(date_str)
@@ -160,6 +197,8 @@ def run_schedina_ai(date_str):
 
         # Ordina per confidenza (tutte le partite)
         schedina = df_matches.sort_values(by='Confidenza', ascending=False)
+
+        salva_predizioni_su_db(schedina)
 
         return schedina[['League', 'HomeTeam', 'AwayTeam', 'Esito_1X2', 'Gol_Previsti', 'Confidenza', 'UTCDate']]
 
