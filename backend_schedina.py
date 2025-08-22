@@ -43,9 +43,9 @@ SEASON_WEIGHTS = {
 MODEL_1X2_FILE = "model_1x2.joblib"
 MODEL_GOL_FILE = "model_gol.joblib"
 ENCODERS_FILE = "encoders.joblib"
-
 DB_FILE = "schedina_ai.db"
 
+# === DB INIT ===
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
@@ -65,6 +65,7 @@ def init_db():
     conn.commit()
     conn.close()
 
+# === SALVA PREDIZIONI ===
 def salva_predizioni_su_db(df):
     conn = sqlite3.connect(DB_FILE)
     df_to_save = df.copy()
@@ -72,6 +73,7 @@ def salva_predizioni_su_db(df):
     df_to_save.to_sql("predictions", conn, if_exists="append", index=False)
     conn.close()
 
+# === LOAD DATA ===
 @st.cache_data
 def load_historical_data():
     dfs = []
@@ -91,6 +93,7 @@ def load_historical_data():
     df['TotalGoals'] = df['TotalGoals'].clip(upper=6)
     return df
 
+# === MODELS ===
 def save_encoders(le_home, le_away, le_league):
     joblib.dump((le_home, le_away, le_league), ENCODERS_FILE)
 
@@ -133,6 +136,7 @@ def load_or_train_models(df):
         save_encoders(le_home, le_away, le_league)
     return model_1x2, model_gol, le_home, le_away, le_league
 
+# === FUZZY MATCH ===
 def fuzzy_match_teams(df_matches, reference_teams, column, threshold=80):
     mapping = {}
     unique_teams = df_matches[column].unique()
@@ -143,6 +147,7 @@ def fuzzy_match_teams(df_matches, reference_teams, column, threshold=80):
     df_matches[column] = df_matches[column].replace(mapping)
     return df_matches, mapping
 
+# === PARTITE ===
 def get_matches_by_date(input_date_str):
     input_date = pd.to_datetime(input_date_str).date()
     matches = []
@@ -162,6 +167,7 @@ def get_matches_by_date(input_date_str):
                 })
     return pd.DataFrame(matches)
 
+# === RUN ===
 def run_schedina_ai(date_str):
     try:
         init_db()
@@ -169,54 +175,41 @@ def run_schedina_ai(date_str):
         model_1x2, model_gol, le_home, le_away, le_league = load_or_train_models(df_hist)
         df_matches = get_matches_by_date(date_str)
 
-        print(f"🎯 Partite scaricate: {len(df_matches)}")
-        print("👀 Squadre HOME:", df_matches['HomeTeam'].unique())
-        print("👀 Squadre AWAY:", df_matches['AwayTeam'].unique())
-
         if df_matches.empty:
             return pd.DataFrame()
 
         home_ref = df_hist['HomeTeam'].unique()
         away_ref = df_hist['AwayTeam'].unique()
-        df_matches, map_home = fuzzy_match_teams(df_matches, home_ref, 'HomeTeam', threshold=80)
-        df_matches, map_away = fuzzy_match_teams(df_matches, away_ref, 'AwayTeam', threshold=80)
-        print("📘 Mapping HOME:", map_home)
-        print("📕 Mapping AWAY:", map_away)
+        df_matches, _ = fuzzy_match_teams(df_matches, home_ref, 'HomeTeam', threshold=80)
+        df_matches, _ = fuzzy_match_teams(df_matches, away_ref, 'AwayTeam', threshold=80)
 
-        df_valid = df_matches[
+        # Filtro compatibilità
+        df_matches = df_matches[
             df_matches['HomeTeam'].isin(le_home.classes_) &
             df_matches['AwayTeam'].isin(le_away.classes_) &
             df_matches['League'].isin(le_league.classes_)
         ].reset_index(drop=True)
 
-        escluse = [
-            [row['HomeTeam'], row['AwayTeam']]
-            for _, row in df_matches.iterrows()
-            if row['HomeTeam'] not in le_home.classes_ or row['AwayTeam'] not in le_away.classes_ or row['League'] not in le_league.classes_
-        ]
-        if escluse:
-            print("⛔ Squadre escluse perché non riconosciute dai modelli:", escluse)
-
-        if df_valid.empty:
+        if df_matches.empty:
             return pd.DataFrame()
 
-        df_valid['Home_enc'] = le_home.transform(df_valid['HomeTeam'])
-        df_valid['Away_enc'] = le_away.transform(df_valid['AwayTeam'])
-        df_valid['League_enc'] = le_league.transform(df_valid['League'])
+        df_matches['Home_enc'] = le_home.transform(df_matches['HomeTeam'])
+        df_matches['Away_enc'] = le_away.transform(df_matches['AwayTeam'])
+        df_matches['League_enc'] = le_league.transform(df_matches['League'])
 
-        X_pred = df_valid[['Home_enc', 'Away_enc', 'League_enc']]
+        X_pred = df_matches[['Home_enc', 'Away_enc', 'League_enc']]
         pred_1x2_raw = model_1x2.predict(X_pred)
         conf_1x2 = model_1x2.predict_proba(X_pred).max(axis=1)
         pred_gol = model_gol.predict(X_pred)
 
         inv_map = {0: 'H', 1: 'D', 2: 'A'}
-        df_valid['Esito_1X2'] = pd.Series(pred_1x2_raw).map(inv_map)
-        df_valid['Gol_Previsti'] = pred_gol
-        df_valid['Confidenza'] = conf_1x2
-        df_valid['UTCDate'] = pd.to_datetime(df_valid['UTCDate']).dt.tz_localize(None)
+        df_matches['Esito_1X2'] = pd.Series(pred_1x2_raw).map(inv_map)
+        df_matches['Gol_Previsti'] = pred_gol
+        df_matches['Confidenza'] = conf_1x2
+        df_matches['UTCDate'] = pd.to_datetime(df_matches['UTCDate']).dt.tz_localize(None)
 
-        schedina = df_valid.sort_values(by='Confidenza', ascending=False)
-
+        # TOP 10
+        schedina = df_matches.sort_values(by='Confidenza', ascending=False).head(10)
         salva_predizioni_su_db(schedina)
 
         return schedina[['League', 'HomeTeam', 'AwayTeam', 'Esito_1X2', 'Gol_Previsti', 'Confidenza', 'UTCDate']]
