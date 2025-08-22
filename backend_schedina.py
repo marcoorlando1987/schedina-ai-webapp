@@ -121,7 +121,7 @@ def train_models(df):
     return model_1x2, model_gol, le_home, le_away, le_league
 
 # === FUNZIONE: Fuzzy matching automatico
-def fuzzy_match_teams(df_matches, reference_teams, column, threshold=90):
+def fuzzy_match_teams(df_matches, reference_teams, column, threshold=80):
     mapping = {}
     unique_teams = df_matches[column].unique()
     for team in unique_teams:
@@ -165,8 +165,8 @@ def run_schedina_ai(date_str):
         # Fuzzy matching
         home_ref = df_hist['HomeTeam'].unique()
         away_ref = df_hist['AwayTeam'].unique()
-        df_matches, _ = fuzzy_match_teams(df_matches, home_ref, 'HomeTeam', threshold=90)
-        df_matches, _ = fuzzy_match_teams(df_matches, away_ref, 'AwayTeam', threshold=90)
+        df_matches, _ = fuzzy_match_teams(df_matches, home_ref, 'HomeTeam', threshold=80)
+        df_matches, _ = fuzzy_match_teams(df_matches, away_ref, 'AwayTeam', threshold=80)
 
         # Filtra solo partite compatibili
         df_matches = df_matches[
