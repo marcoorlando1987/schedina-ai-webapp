@@ -168,11 +168,10 @@ def run_schedina_ai(date_str):
         df_hist = load_historical_data()
         model_1x2, model_gol, le_home, le_away, le_league = load_or_train_models(df_hist)
         df_matches = get_matches_by_date(date_str)
-        print(f"🎯 Partite scaricate: {len(df_matches)}")
 
-        print(f"🎯 Partite scaricate: {len(df_matches)}")
-        print("👀 Squadre HOME:", df_matches['HomeTeam'].unique())
-        print("👀 Squadre AWAY:", df_matches['AwayTeam'].unique())
+        st.text(f"🎯 Partite scaricate: {len(df_matches)}")
+        st.text(f"👀 Squadre HOME: {df_matches['HomeTeam'].unique()}")
+        st.text(f"👀 Squadre AWAY: {df_matches['AwayTeam'].unique()}")
 
         if df_matches.empty:
             return pd.DataFrame()
@@ -181,12 +180,16 @@ def run_schedina_ai(date_str):
         away_ref = df_hist['AwayTeam'].unique()
         df_matches, map_home = fuzzy_match_teams(df_matches, home_ref, 'HomeTeam', threshold=80)
         df_matches, map_away = fuzzy_match_teams(df_matches, away_ref, 'AwayTeam', threshold=80)
-        print("📘 Mapping HOME:", map_home)
-        print("📕 Mapping AWAY:", map_away)
+        st.text(f"📘 Mapping HOME: {map_home}")
+        st.text(f"📕 Mapping AWAY: {map_away}")
 
-        df_matches['Home_enc'] = le_home.transform(df_matches['HomeTeam'])
-        df_matches['Away_enc'] = le_away.transform(df_matches['AwayTeam'])
-        df_matches['League_enc'] = le_league.transform(df_matches['League'])
+        try:
+            df_matches['Home_enc'] = le_home.transform(df_matches['HomeTeam'])
+            df_matches['Away_enc'] = le_away.transform(df_matches['AwayTeam'])
+            df_matches['League_enc'] = le_league.transform(df_matches['League'])
+        except ValueError as e:
+            st.error(f"⚠️ Errore nella trasformazione dei dati: {e}")
+            return pd.DataFrame()
 
         X_pred = df_matches[['Home_enc', 'Away_enc', 'League_enc']]
         pred_1x2_raw = model_1x2.predict(X_pred)
@@ -200,11 +203,10 @@ def run_schedina_ai(date_str):
         df_matches['UTCDate'] = pd.to_datetime(df_matches['UTCDate']).dt.tz_localize(None)
 
         schedina = df_matches.sort_values(by='Confidenza', ascending=False)
-
         salva_predizioni_su_db(schedina)
 
         return schedina[['League', 'HomeTeam', 'AwayTeam', 'Esito_1X2', 'Gol_Previsti', 'Confidenza', 'UTCDate']]
 
     except Exception as e:
-        print(f"Errore durante l'esecuzione del modello: {e}")
+        st.error(f"❌ Errore durante l'esecuzione: {e}")
         return pd.DataFrame()
