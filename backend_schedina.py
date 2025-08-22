@@ -69,12 +69,6 @@ def salva_predizioni_su_db(df):
     df_to_save.to_sql("predictions", conn, if_exists="append", index=False)
     conn.close()
 
-def leggi_predizioni_da_db():
-    conn = sqlite3.connect(DB_FILE)
-    df = pd.read_sql_query("SELECT * FROM predictions ORDER BY created_at DESC", conn)
-    conn.close()
-    return df
-
 # === FUNZIONE: Carica dati storici ===
 def load_historical_data():
     dfs = []
@@ -108,7 +102,6 @@ def train_models(df):
     y1 = df['FTR'].map({'H': 0, 'D': 1, 'A': 2})
     y2 = df['TotalGoals']
 
-    # Calcolo dei pesi
     weights = df['Season'].map(SEASON_WEIGHTS).fillna(0.5)
 
     X_train, _, y1_train, _, y2_train, _ = train_test_split(X, y1, y2, test_size=0.2, random_state=42)
@@ -159,31 +152,35 @@ def run_schedina_ai(date_str):
         model_1x2, model_gol, le_home, le_away, le_league = train_models(df_hist)
         df_matches = get_matches_by_date(date_str)
 
+        print(f"🎯 Partite scaricate: {len(df_matches)}")
+        print("👀 Squadre HOME:", df_matches['HomeTeam'].unique())
+        print("👀 Squadre AWAY:", df_matches['AwayTeam'].unique())
+
         if df_matches.empty:
             return pd.DataFrame()
 
-        # Fuzzy matching
         home_ref = df_hist['HomeTeam'].unique()
         away_ref = df_hist['AwayTeam'].unique()
-        df_matches, _ = fuzzy_match_teams(df_matches, home_ref, 'HomeTeam', threshold=80)
-        df_matches, _ = fuzzy_match_teams(df_matches, away_ref, 'AwayTeam', threshold=80)
+        df_matches, map_home = fuzzy_match_teams(df_matches, home_ref, 'HomeTeam', threshold=80)
+        df_matches, map_away = fuzzy_match_teams(df_matches, away_ref, 'AwayTeam', threshold=80)
+        print("📘 Mapping HOME:", map_home)
+        print("📕 Mapping AWAY:", map_away)
 
-        # Filtra solo partite compatibili
         df_matches = df_matches[
             df_matches['HomeTeam'].isin(le_home.classes_) &
             df_matches['AwayTeam'].isin(le_away.classes_) &
             df_matches['League'].isin(le_league.classes_)
         ].reset_index(drop=True)
 
+        print(f"✅ Partite compatibili dopo filtro: {len(df_matches)}")
+
         if df_matches.empty:
             return pd.DataFrame()
 
-        # Codifica
         df_matches['Home_enc'] = le_home.transform(df_matches['HomeTeam'])
         df_matches['Away_enc'] = le_away.transform(df_matches['AwayTeam'])
         df_matches['League_enc'] = le_league.transform(df_matches['League'])
 
-        # Predizione
         X_pred = df_matches[['Home_enc', 'Away_enc', 'League_enc']]
         pred_1x2_raw = model_1x2.predict(X_pred)
         conf_1x2 = model_1x2.predict_proba(X_pred).max(axis=1)
@@ -195,7 +192,6 @@ def run_schedina_ai(date_str):
         df_matches['Confidenza'] = conf_1x2
         df_matches['UTCDate'] = pd.to_datetime(df_matches['UTCDate']).dt.tz_localize(None)
 
-        # Ordina per confidenza (tutte le partite)
         schedina = df_matches.sort_values(by='Confidenza', ascending=False)
 
         salva_predizioni_su_db(schedina)
