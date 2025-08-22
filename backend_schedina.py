@@ -43,7 +43,6 @@ SEASON_WEIGHTS = {
 MODEL_1X2_FILE = "model_1x2.joblib"
 MODEL_GOL_FILE = "model_gol.joblib"
 ENCODERS_FILE = "encoders.joblib"
-
 DB_FILE = "schedina_ai.db"
 
 def init_db():
@@ -183,13 +182,29 @@ def run_schedina_ai(date_str):
         st.text(f"📘 Mapping HOME: {map_home}")
         st.text(f"📕 Mapping AWAY: {map_away}")
 
-        try:
-            df_matches['Home_enc'] = le_home.transform(df_matches['HomeTeam'])
-            df_matches['Away_enc'] = le_away.transform(df_matches['AwayTeam'])
-            df_matches['League_enc'] = le_league.transform(df_matches['League'])
-        except ValueError as e:
-            st.error(f"⚠️ Errore nella trasformazione dei dati: {e}")
+        # Rimozione righe con squadre non trasformabili
+        valid_rows = []
+        dropped_teams = []
+        for i, row in df_matches.iterrows():
+            try:
+                le_home.transform([row['HomeTeam']])
+                le_away.transform([row['AwayTeam']])
+                le_league.transform([row['League']])
+                valid_rows.append(i)
+            except ValueError:
+                dropped_teams.append((row['HomeTeam'], row['AwayTeam']))
+
+        if dropped_teams:
+            st.warning(f"⛔ Squadre escluse perché non riconosciute dai modelli: {dropped_teams}")
+
+        df_matches = df_matches.loc[valid_rows].reset_index(drop=True)
+
+        if df_matches.empty:
             return pd.DataFrame()
+
+        df_matches['Home_enc'] = le_home.transform(df_matches['HomeTeam'])
+        df_matches['Away_enc'] = le_away.transform(df_matches['AwayTeam'])
+        df_matches['League_enc'] = le_league.transform(df_matches['League'])
 
         X_pred = df_matches[['Home_enc', 'Away_enc', 'League_enc']]
         pred_1x2_raw = model_1x2.predict(X_pred)
@@ -203,10 +218,11 @@ def run_schedina_ai(date_str):
         df_matches['UTCDate'] = pd.to_datetime(df_matches['UTCDate']).dt.tz_localize(None)
 
         schedina = df_matches.sort_values(by='Confidenza', ascending=False)
+
         salva_predizioni_su_db(schedina)
 
         return schedina[['League', 'HomeTeam', 'AwayTeam', 'Esito_1X2', 'Gol_Previsti', 'Confidenza', 'UTCDate']]
 
     except Exception as e:
-        st.error(f"❌ Errore durante l'esecuzione: {e}")
+        st.error(f"❌ Errore durante l'esecuzione del modello: {e}")
         return pd.DataFrame()
