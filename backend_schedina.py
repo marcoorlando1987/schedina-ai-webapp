@@ -30,12 +30,13 @@ DATA_CODES = {
     "F1": "Ligue 1"
 }
 
-SEASONS = ["2122", "2223", "2324", "2425"]
+SEASONS = ["2122", "2223", "2324", "2425", "2526"]
 SEASON_WEIGHTS = {
-    "2122": 0.5,
-    "2223": 0.7,
-    "2324": 0.9,
-    "2425": 1.0
+    "2122": 0.3,
+    "2223": 0.5,
+    "2324": 0.8,
+    "2425": 1.0,
+    "2526": 1.3
 }
 
 # === FUNZIONE: Carica dati storici ===
@@ -84,7 +85,7 @@ def train_models(df):
     return model_1x2, model_gol, le_home, le_away, le_league
 
 # === FUNZIONE: Fuzzy matching automatico
-def fuzzy_match_teams(df_matches, reference_teams, column, threshold=75):
+def fuzzy_match_teams(df_matches, reference_teams, column, threshold=85):
     mapping = {}
     unique_teams = df_matches[column].unique()
     for team in unique_teams:
@@ -127,8 +128,8 @@ def run_schedina_ai(date_str):
         # Fuzzy matching
         home_ref = df_hist['HomeTeam'].unique()
         away_ref = df_hist['AwayTeam'].unique()
-        df_matches, _ = fuzzy_match_teams(df_matches, home_ref, 'HomeTeam', threshold=80)
-        df_matches, _ = fuzzy_match_teams(df_matches, away_ref, 'AwayTeam', threshold=80)
+        df_matches, _ = fuzzy_match_teams(df_matches, home_ref, 'HomeTeam', threshold=90)
+        df_matches, _ = fuzzy_match_teams(df_matches, away_ref, 'AwayTeam', threshold=90)
 
         # Filtra solo partite compatibili
         df_matches = df_matches[
@@ -157,8 +158,8 @@ def run_schedina_ai(date_str):
         df_matches['Confidenza'] = conf_1x2
         df_matches['UTCDate'] = pd.to_datetime(df_matches['UTCDate']).dt.tz_localize(None)
 
-        # Ordina per confidenza
-        schedina = df_matches.sort_values(by='Confidenza', ascending=False).head(10)
+        # Ordina per confidenza (tutte le partite)
+        schedina = df_matches.sort_values(by='Confidenza', ascending=False)
 
         return schedina[['League', 'HomeTeam', 'AwayTeam', 'Esito_1X2', 'Gol_Previsti', 'Confidenza', 'UTCDate']]
 
