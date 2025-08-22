@@ -6,6 +6,8 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
 from rapidfuzz import process
 import sqlite3
+import joblib
+import os
 import warnings
 import streamlit as st
 warnings.filterwarnings("ignore")
@@ -38,7 +40,10 @@ SEASON_WEIGHTS = {
     "2526": 1.3
 }
 
-# === DB ===
+MODEL_1X2_FILE = "model_1x2.joblib"
+MODEL_GOL_FILE = "model_gol.joblib"
+ENCODERS_FILE = "encoders.joblib"
+
 DB_FILE = "schedina_ai.db"
 
 def init_db():
@@ -67,7 +72,6 @@ def salva_predizioni_su_db(df):
     df_to_save.to_sql("predictions", conn, if_exists="append", index=False)
     conn.close()
 
-# === FUNZIONE: Carica dati storici ===
 @st.cache_data
 def load_historical_data():
     dfs = []
@@ -87,9 +91,13 @@ def load_historical_data():
     df['TotalGoals'] = df['TotalGoals'].clip(upper=6)
     return df
 
-# === FUNZIONE: Addestra i modelli ===
-@st.cache_resource
-def train_models_cached(df):
+def save_encoders(le_home, le_away, le_league):
+    joblib.dump((le_home, le_away, le_league), ENCODERS_FILE)
+
+def load_encoders():
+    return joblib.load(ENCODERS_FILE)
+
+def train_models(df):
     le_home = LabelEncoder()
     le_away = LabelEncoder()
     le_league = LabelEncoder()
@@ -113,7 +121,18 @@ def train_models_cached(df):
 
     return model_1x2, model_gol, le_home, le_away, le_league
 
-# === FUNZIONE: Fuzzy matching automatico
+def load_or_train_models(df):
+    if os.path.exists(MODEL_1X2_FILE) and os.path.exists(MODEL_GOL_FILE) and os.path.exists(ENCODERS_FILE):
+        model_1x2 = joblib.load(MODEL_1X2_FILE)
+        model_gol = joblib.load(MODEL_GOL_FILE)
+        le_home, le_away, le_league = load_encoders()
+    else:
+        model_1x2, model_gol, le_home, le_away, le_league = train_models(df)
+        joblib.dump(model_1x2, MODEL_1X2_FILE)
+        joblib.dump(model_gol, MODEL_GOL_FILE)
+        save_encoders(le_home, le_away, le_league)
+    return model_1x2, model_gol, le_home, le_away, le_league
+
 def fuzzy_match_teams(df_matches, reference_teams, column, threshold=80):
     mapping = {}
     unique_teams = df_matches[column].unique()
@@ -124,7 +143,6 @@ def fuzzy_match_teams(df_matches, reference_teams, column, threshold=80):
     df_matches[column] = df_matches[column].replace(mapping)
     return df_matches, mapping
 
-# === FUNZIONE: Scarica partite future per una data specifica
 def get_matches_by_date(input_date_str):
     input_date = pd.to_datetime(input_date_str).date()
     matches = []
@@ -144,12 +162,11 @@ def get_matches_by_date(input_date_str):
                 })
     return pd.DataFrame(matches)
 
-# === FUNZIONE PRINCIPALE ===
 def run_schedina_ai(date_str):
     try:
         init_db()
         df_hist = load_historical_data()
-        model_1x2, model_gol, le_home, le_away, le_league = train_models_cached(df_hist)
+        model_1x2, model_gol, le_home, le_away, le_league = load_or_train_models(df_hist)
         df_matches = get_matches_by_date(date_str)
 
         print(f"🎯 Partite scaricate: {len(df_matches)}")
