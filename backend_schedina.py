@@ -183,17 +183,6 @@ def run_schedina_ai(date_str):
         print("📘 Mapping HOME:", map_home)
         print("📕 Mapping AWAY:", map_away)
 
-        df_matches = df_matches[
-            df_matches['HomeTeam'].isin(le_home.classes_) &
-            df_matches['AwayTeam'].isin(le_away.classes_) &
-            df_matches['League'].isin(le_league.classes_)
-        ].reset_index(drop=True)
-
-        print(f"✅ Partite compatibili dopo filtro: {len(df_matches)}")
-
-        if df_matches.empty:
-            return pd.DataFrame()
-
         df_matches['Home_enc'] = le_home.transform(df_matches['HomeTeam'])
         df_matches['Away_enc'] = le_away.transform(df_matches['AwayTeam'])
         df_matches['League_enc'] = le_league.transform(df_matches['League'])
