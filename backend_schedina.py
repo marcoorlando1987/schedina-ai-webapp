@@ -31,10 +31,8 @@ DATA_CODES = {
     "F1": "Ligue 1"
 }
 
-SEASONS = ["2122", "2223", "2324", "2425", "2526"]
+SEASONS = ["2324", "2425", "2526"]
 SEASON_WEIGHTS = {
-    "2122": 0.3,
-    "2223": 0.5,
     "2324": 0.8,
     "2425": 1.0,
     "2526": 1.3
@@ -70,6 +68,7 @@ def salva_predizioni_su_db(df):
     conn.close()
 
 # === FUNZIONE: Carica dati storici ===
+@st.cache_data
 def load_historical_data():
     dfs = []
     for season in SEASONS:
@@ -89,7 +88,8 @@ def load_historical_data():
     return df
 
 # === FUNZIONE: Addestra i modelli ===
-def train_models(df):
+@st.cache_resource
+def train_models_cached(df):
     le_home = LabelEncoder()
     le_away = LabelEncoder()
     le_league = LabelEncoder()
@@ -149,7 +149,7 @@ def run_schedina_ai(date_str):
     try:
         init_db()
         df_hist = load_historical_data()
-        model_1x2, model_gol, le_home, le_away, le_league = train_models(df_hist)
+        model_1x2, model_gol, le_home, le_away, le_league = train_models_cached(df_hist)
         df_matches = get_matches_by_date(date_str)
 
         print(f"🎯 Partite scaricate: {len(df_matches)}")
