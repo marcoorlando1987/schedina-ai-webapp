@@ -30,15 +30,17 @@ DATA_CODES = {
     "F1": "Ligue 1"
 }
 
-SEASONS = ["2122", "2223", "2324", "2425"]
+SEASONS = ["2122", "2223", "2324", "2425", "2526"]
 SEASON_WEIGHTS = {
     "2122": 0.5,
     "2223": 0.7,
     "2324": 0.9,
-    "2425": 1.0
+    "2425": 1.0,
+    "2526": 1.2
 }
 
-# === FUNZIONE: Carica dati storici ===
+# === FUNZIONE: Carica dati storici con CACHE ===
+@st.cache_data
 def load_historical_data():
     dfs = []
     for season in SEASONS:
@@ -83,8 +85,8 @@ def train_models(df):
 
     return model_1x2, model_gol, le_home, le_away, le_league
 
-# === FUNZIONE: Fuzzy matching automatico
-def fuzzy_match_teams(df_matches, reference_teams, column, threshold=75):
+# === FUNZIONE: Fuzzy matching ===
+def fuzzy_match_teams(df_matches, reference_teams, column, threshold=80):
     mapping = {}
     unique_teams = df_matches[column].unique()
     for team in unique_teams:
@@ -94,7 +96,7 @@ def fuzzy_match_teams(df_matches, reference_teams, column, threshold=75):
     df_matches[column] = df_matches[column].replace(mapping)
     return df_matches, mapping
 
-# === FUNZIONE: Scarica partite future per una data specifica
+# === FUNZIONE: Partite in una data ===
 def get_matches_by_date(input_date_str):
     input_date = pd.to_datetime(input_date_str).date()
     matches = []
@@ -157,11 +159,11 @@ def run_schedina_ai(date_str):
         df_matches['Confidenza'] = conf_1x2
         df_matches['UTCDate'] = pd.to_datetime(df_matches['UTCDate']).dt.tz_localize(None)
 
-        # Ordina per confidenza
+        # Ordina per confidenza e mostra solo le 10 più sicure
         schedina = df_matches.sort_values(by='Confidenza', ascending=False).head(10)
 
         return schedina[['League', 'HomeTeam', 'AwayTeam', 'Esito_1X2', 'Gol_Previsti', 'Confidenza', 'UTCDate']]
 
     except Exception as e:
-        print(f"Errore durante l'esecuzione del modello: {e}")
+        print(f"❌ Errore durante l'esecuzione del modello: {e}")
         return pd.DataFrame()
