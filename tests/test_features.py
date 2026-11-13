@@ -49,3 +49,24 @@ def test_unknown_team_gets_promoted_default_after_first_season():
     f = e.snapshot("L", "A", None, d + pd.Timedelta(days=200))
     assert f["elo_diff"] > 0  # neopromossa (1450) sotto una squadra media
     assert f["a_n"] == 0
+
+
+def test_shots_update_ewma_and_nan_is_ignored():
+    e = RatingEngine()
+    d = pd.Timestamp("2025-09-01")
+    base = e.snapshot("L", "A", "B", d)
+    assert base["h_sotf"] == 4.5 and base["exp_sot_h"] == 4.5
+    e.update("L", "A", "B", d, 1, 0, sh_h=20, sh_a=5, sot_h=9, sot_a=1)
+    f = e.snapshot("L", "A", "B", d + pd.Timedelta(days=7))
+    assert f["h_sotf"] > 4.5 > f["h_sota"]          # A tira molto, B poco
+    assert f["a_sota"] > 4.5 > f["a_sotf"]          # i tiri di A sono i tiri subiti da B
+    e.update("L", "A", "B", d + pd.Timedelta(days=7), 0, 0)   # senza statistiche: invariato
+    g = e.snapshot("L", "A", "B", d + pd.Timedelta(days=14))
+    assert g["h_sotf"] == f["h_sotf"] and g["h_shf"] == f["h_shf"]
+
+
+def test_training_frame_works_without_shot_columns(small_matches):
+    from schedina_ai.features import build_training_frame
+
+    frame, _ = build_training_frame(small_matches.drop(columns=["sh_h", "sh_a", "sot_h", "sot_a"]))
+    assert (frame["h_sotf"] == 4.5).all() and len(frame) == len(small_matches)

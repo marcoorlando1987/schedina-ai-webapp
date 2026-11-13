@@ -29,9 +29,13 @@ ODDS_TRIPLES = [
     ("PSH", "PSD", "PSA"),
 ]
 
+# Quote a cui un giocatore poteva davvero puntare (prima scelta: Bet365, autorizzato in Italia).
+BET_ODDS_TRIPLES = [("B365H", "B365D", "B365A"), ("AvgH", "AvgD", "AvgA"), ("PSH", "PSD", "PSA")]
+
 MATCH_COLUMNS = [
     "league", "season", "date", "home", "away", "hg", "ag", "result",
-    "mkt_h", "mkt_d", "mkt_a",
+    "mkt_h", "mkt_d", "mkt_a", "sh_h", "sh_a", "sot_h", "sot_a",
+    "odds_h", "odds_d", "odds_a",
 ]
 
 
@@ -93,6 +97,10 @@ def parse_csv(path: Path, league_name: str, season: str) -> pd.DataFrame:
         "result": raw["FTR"].astype("string").str.strip(),
     })
 
+    # tiri (HS/AS) e tiri in porta (HST/AST): segnale meno rumoroso dei gol; NaN se assenti
+    for dst, src in (("sh_h", "HS"), ("sh_a", "AS"), ("sot_h", "HST"), ("sot_a", "AST")):
+        out[dst] = pd.to_numeric(raw[src], errors="coerce") if src in raw.columns else np.nan
+
     # quote -> probabilità di mercato normalizzate (tolto il margine)
     odds = {k: pd.Series(np.nan, index=raw.index) for k in "hda"}
     for cols in ODDS_TRIPLES:
@@ -103,6 +111,17 @@ def parse_csv(path: Path, league_name: str, season: str) -> pd.DataFrame:
     total = inv.sum(axis=1, skipna=False)
     for k in "hda":
         out[f"mkt_{k}"] = inv[k] / total
+
+    # quote grezze (con margine) per valutare il ritorno economico: una terna coerente per riga
+    bet = pd.DataFrame(np.nan, index=raw.index, columns=["odds_h", "odds_d", "odds_a"])
+    for cols in BET_ODDS_TRIPLES:
+        if all(c in raw.columns for c in cols):
+            trip = pd.DataFrame({k: pd.to_numeric(raw[c], errors="coerce")
+                                 for k, c in zip(bet.columns, cols)})
+            fill = bet.isna().all(axis=1) & (trip > 1.0).all(axis=1)
+            bet.loc[fill, :] = trip.loc[fill, :]
+    for k in bet.columns:
+        out[k] = bet[k]
 
     out = out.dropna(subset=["date", "home", "away", "hg", "ag"])
     out = out[out["result"].isin(["H", "D", "A"])]

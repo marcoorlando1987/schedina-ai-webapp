@@ -23,9 +23,16 @@ GOALS_START = 1.35
 PTS_START = 1.35
 FORM_WINDOW = 5
 
+SOT_START = 4.5   # tiri in porta per squadra a partita (media di lega)
+SH_START = 12.0   # tiri totali per squadra a partita
+SHOT_ALPHA = 0.10
+
 FEATURES = [
     "elo_diff", "h_gf", "h_ga", "a_gf", "a_ga", "exp_h", "exp_a",
     "h_pts5", "a_pts5", "h_rest", "a_rest", "h_n", "a_n",
+    # tiri: medie mobili di tiri in porta / tiri fatti e subiti
+    "h_sotf", "h_sota", "a_sotf", "a_sota", "exp_sot_h", "exp_sot_a",
+    "h_shf", "h_sha", "a_shf", "a_sha",
 ]
 
 
@@ -34,6 +41,10 @@ class TeamState:
     elo: float = ELO_START
     gf: float = GOALS_START
     ga: float = GOALS_START
+    sotf: float = SOT_START
+    sota: float = SOT_START
+    shf: float = SH_START
+    sha: float = SH_START
     pts: deque = field(default_factory=lambda: deque(maxlen=FORM_WINDOW))
     last_date: pd.Timestamp | None = None
     n: int = 0
@@ -101,10 +112,14 @@ class RatingEngine:
             "h_pts5": pts(h), "a_pts5": pts(a),
             "h_rest": rest(h), "a_rest": rest(a),
             "h_n": float(min(h.n, 20)), "a_n": float(min(a.n, 20)),
+            "h_sotf": h.sotf, "h_sota": h.sota, "a_sotf": a.sotf, "a_sota": a.sota,
+            "exp_sot_h": (h.sotf + a.sota) / 2.0, "exp_sot_a": (a.sotf + h.sota) / 2.0,
+            "h_shf": h.shf, "h_sha": h.sha, "a_shf": a.shf, "a_sha": a.sha,
         }
 
     def update(self, league: str, home: str, away: str, date: pd.Timestamp,
-               hg: int, ag: int) -> None:
+               hg: int, ag: int, sh_h: float = math.nan, sh_a: float = math.nan,
+               sot_h: float = math.nan, sot_a: float = math.nan) -> None:
         h = self._get(league, home)
         a = self._get(league, away)
 
@@ -120,6 +135,15 @@ class RatingEngine:
         a.gf += EWMA_ALPHA * (ag - a.gf)
         a.ga += EWMA_ALPHA * (hg - a.ga)
 
+        # tiri: si aggiorna solo se il dato c'è (NaN = partita senza statistiche)
+        def ewma(old: float, new: float) -> float:
+            return old if new is None or math.isnan(new) else old + SHOT_ALPHA * (new - old)
+
+        h.sotf, h.sota = ewma(h.sotf, sot_h), ewma(h.sota, sot_a)
+        a.sotf, a.sota = ewma(a.sotf, sot_a), ewma(a.sota, sot_h)
+        h.shf, h.sha = ewma(h.shf, sh_h), ewma(h.sha, sh_a)
+        a.shf, a.sha = ewma(a.shf, sh_a), ewma(a.sha, sh_h)
+
         h.pts.append(3 if hg > ag else 1 if hg == ag else 0)
         a.pts.append(3 if ag > hg else 1 if hg == ag else 0)
         h.last_date = a.last_date = date
@@ -133,13 +157,19 @@ def build_training_frame(matches: pd.DataFrame) -> tuple[pd.DataFrame, RatingEng
     nello stato finale (da usare per prevedere le partite future)."""
     engine = RatingEngine()
     rows: list[dict] = []
+    matches = matches.copy()
+    for col in ("sh_h", "sh_a", "sot_h", "sot_a", "odds_h", "odds_d", "odds_a"):  # dati senza queste colonne
+        if col not in matches.columns:
+            matches[col] = math.nan
     for r in matches.sort_values(["date", "league"], kind="stable").itertuples(index=False):
         feats = engine.snapshot(r.league, r.home, r.away, r.date)
         rows.append({
             "league": r.league, "season": r.season, "date": r.date,
             "home": r.home, "away": r.away, "hg": r.hg, "ag": r.ag, "result": r.result,
             "mkt_h": r.mkt_h, "mkt_d": r.mkt_d, "mkt_a": r.mkt_a,
+            "odds_h": r.odds_h, "odds_d": r.odds_d, "odds_a": r.odds_a,
             **feats,
         })
-        engine.update(r.league, r.home, r.away, r.date, r.hg, r.ag)
+        engine.update(r.league, r.home, r.away, r.date, r.hg, r.ag,
+                      r.sh_h, r.sh_a, r.sot_h, r.sot_a)
     return pd.DataFrame(rows), engine

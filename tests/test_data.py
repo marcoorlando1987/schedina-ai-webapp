@@ -80,3 +80,30 @@ def test_load_history_fails_fast_when_source_is_down(tmp_path):
     with pytest.raises(data.DataError, match="non raggiungibile"):
         data.load_history(cache_dir=tmp_path, session=s)
     assert len(s.calls) == data.MAX_CONSECUTIVE_FAILURES  # si ferma subito, non 30 tentativi
+
+
+def test_parse_csv_reads_shots(tmp_path):
+    csv = ("Date,HomeTeam,AwayTeam,FTHG,FTAG,FTR,HS,AS,HST,AST\n"
+           "23/08/25,Inter,Torino,5,0,H,20,6,10,1\n"
+           "24/08/25,Roma,Bologna,0,1,A,,,,\n")
+    p = tmp_path / "x.csv"
+    p.write_text(csv)
+    df = data.parse_csv(p, "Serie A", "2526")
+    assert df.loc[0, ["sh_h", "sh_a", "sot_h", "sot_a"]].tolist() == [20, 6, 10, 1]
+    assert df.loc[1, ["sh_h", "sot_h"]].isna().all()
+    noshots = tmp_path / "y.csv"
+    noshots.write_text("Date,HomeTeam,AwayTeam,FTHG,FTAG,FTR\n23/08/25,Inter,Torino,5,0,H\n")
+    assert data.parse_csv(noshots, "Serie A", "2526")["sot_h"].isna().all()
+
+
+def test_parse_csv_reads_bettable_odds_coherent_per_row(tmp_path):
+    csv = ("Date,HomeTeam,AwayTeam,FTHG,FTAG,FTR,B365H,B365D,B365A,AvgH,AvgD,AvgA\n"
+           "23/08/25,Inter,Torino,5,0,H,1.40,5.00,8.00,1.45,4.80,7.50\n"
+           "24/08/25,Roma,Bologna,0,1,A,,,,2.00,3.40,3.80\n"       # B365 assente: terna Avg
+           "25/08/25,Milan,Genoa,1,1,D,2.0,,3.8,2.1,3.3,3.7\n")    # B365 incompleta: terna Avg intera
+    p = tmp_path / "x.csv"
+    p.write_text(csv)
+    df = data.parse_csv(p, "Serie A", "2526")
+    assert df.loc[0, ["odds_h", "odds_d", "odds_a"]].tolist() == [1.40, 5.00, 8.00]
+    assert df.loc[1, ["odds_h", "odds_d", "odds_a"]].tolist() == [2.00, 3.40, 3.80]
+    assert df.loc[2, ["odds_h", "odds_d", "odds_a"]].tolist() == [2.1, 3.3, 3.7]
