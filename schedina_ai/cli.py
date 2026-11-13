@@ -16,9 +16,10 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--days-ahead", type=int, default=7)
     r.add_argument("--days-back", type=int, default=7)
     r.add_argument("--skip-eval", action="store_true", help="salta il walk-forward (usa logreg)")
-    r.add_argument("--model", choices=["baseline", "logreg", "xgb", "poisson"], help="forza un modello")
+    r.add_argument("--model", choices=["baseline", "logreg", "xgb", "poisson", "blend", "blend_cal"], help="forza un modello")
 
-    sub.add_parser("evaluate", help="solo validazione walk-forward (stampa le metriche)")
+    e = sub.add_parser("evaluate", help="solo validazione walk-forward (stampa le metriche)")
+    e.add_argument("--report", help="scrive anche un report markdown dettagliato in questo file")
 
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -29,7 +30,16 @@ def main(argv: list[str] | None = None) -> int:
         from .features import build_training_frame
 
         frame, _ = build_training_frame(load_history())
-        print(walk_forward(frame).round(4).to_string())
+        if args.report:
+            from pathlib import Path
+
+            from .report import build_report
+
+            text = build_report(frame)
+            Path(args.report).write_text(text, encoding="utf-8")
+            print(text)
+        else:
+            print(walk_forward(frame).round(4).to_string())
         return 0
 
     from .pipeline import run

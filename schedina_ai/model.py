@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+from scipy.optimize import minimize
 from scipy.stats import poisson
 from sklearn.linear_model import LogisticRegression, PoissonRegressor
 from sklearn.pipeline import make_pipeline
@@ -18,7 +19,9 @@ from .features import FEATURES
 
 CLASSES = ["H", "D", "A"]
 CLASS_IDX = {c: i for i, c in enumerate(CLASSES)}
-KINDS = ("baseline", "logreg", "xgb", "poisson")
+KINDS = ("baseline", "logreg", "xgb", "poisson", "blend", "blend_cal")
+BLENDS = ("blend", "blend_cal")
+PROB_COLS = ["p_home", "p_draw", "p_away"]
 MAX_GOALS = 10
 HALF_LIFE_YEARS = 2.0
 
@@ -52,6 +55,36 @@ def score_matrix_probs(xg_h: np.ndarray, xg_a: np.ndarray) -> tuple[np.ndarray, 
     return probs, over
 
 
+def apply_calibration(probs: np.ndarray, theta: np.ndarray) -> np.ndarray:
+    """Temperatura + peso per classe: q_k ∝ w_k * p_k^(1/T). theta=0 -> identità.
+
+    theta = (log T, log w_pareggio, log w_trasferta); T>1 ammorbidisce le probabilità
+    troppo sicure, w_pareggio>1 corregge la sottostima dei pareggi tipica del Poisson.
+    """
+    log_t, log_wd, log_wa = theta
+    q = np.power(probs, np.exp(-log_t)) * np.exp([0.0, log_wd, log_wa])
+    return q / q.sum(axis=1, keepdims=True)
+
+
+def fit_calibration(df: pd.DataFrame) -> np.ndarray | None:
+    """Stima theta su una stagione di validazione *interna* al training (l'ultima), con il
+    modello addestrato sulle precedenti: nessun dato di test viene toccato."""
+    seasons = sorted(df["season"].unique())
+    if len(seasons) < 3:
+        return None
+    train, val = df[df["season"] < seasons[-1]], df[df["season"] == seasons[-1]]
+    p = Predictor("blend").fit(train).predict(val)[PROB_COLS].to_numpy()
+    y = val["result"].map(CLASS_IDX).to_numpy()
+
+    def loss(theta: np.ndarray) -> float:
+        q = np.clip(apply_calibration(p, theta), 1e-9, 1.0)
+        return float(-np.mean(np.log(q[np.arange(len(y)), y])) + 0.01 * np.sum(theta**2))
+
+    res = minimize(loss, x0=np.zeros(3), method="Nelder-Mead",
+                   options={"xatol": 1e-3, "fatol": 1e-7, "maxiter": 300})
+    return res.x
+
+
 class Predictor:
     def __init__(self, kind: str):
         if kind not in KINDS:
@@ -60,6 +93,10 @@ class Predictor:
 
     # -- training --------------------------------------------------------
     def fit(self, df: pd.DataFrame) -> "Predictor":
+        if self.kind in BLENDS:
+            self._parts = [Predictor("logreg").fit(df), Predictor("poisson").fit(df)]
+            self._cal = fit_calibration(df) if self.kind == "blend_cal" else None
+            return self
         X = design_matrix(df)
         w = time_weights(df["date"])
         y = df["result"].map(CLASS_IDX).to_numpy()
@@ -93,6 +130,14 @@ class Predictor:
 
     # -- inferenza -------------------------------------------------------
     def predict(self, df: pd.DataFrame) -> pd.DataFrame:
+        if self.kind in BLENDS:
+            outs = [part.predict(df) for part in self._parts]
+            probs = np.mean([o[PROB_COLS].to_numpy() for o in outs], axis=0)
+            if self._cal is not None:
+                probs = apply_calibration(probs, self._cal)
+            res = outs[1].copy()  # gol attesi e Over 2.5 dal Poisson
+            res[PROB_COLS] = probs
+            return res
         X = design_matrix(df)[self._cols]
         xg_h = np.clip(self._poi_h.predict(X), 0.05, 6.0)
         xg_a = np.clip(self._poi_a.predict(X), 0.05, 6.0)
