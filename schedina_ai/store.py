@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sqlite3
 from pathlib import Path
 
 import pandas as pd
+import requests
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS predictions (
@@ -83,3 +85,27 @@ def load_predictions(conn: sqlite3.Connection) -> pd.DataFrame:
     df = pd.read_sql_query("SELECT * FROM predictions ORDER BY utc_date, league", conn)
     df["utc_date"] = pd.to_datetime(df["utc_date"], utc=True)
     return df
+
+
+class DbUnavailable(RuntimeError):
+    pass
+
+
+def materialize_db(source: str | Path, dest: Path, session: requests.Session | None = None) -> Path:
+    """Porta il DB in un file locale: da URL http(s) (es. branch `data` su GitHub) o da percorso."""
+    src = str(source)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if src.startswith(("http://", "https://")):
+        try:
+            resp = (session or requests).get(src, timeout=30)
+            resp.raise_for_status()
+        except Exception as exc:  # noqa: BLE001 - rete/HTTP: l'app mostra un messaggio chiaro
+            raise DbUnavailable(f"Impossibile scaricare il DB da {src}: {exc}") from exc
+        if not resp.content.startswith(b"SQLite format 3"):
+            raise DbUnavailable(f"{src} non contiene un database SQLite")
+        dest.write_bytes(resp.content)
+    else:
+        if not Path(src).exists():
+            raise DbUnavailable(f"Database non trovato: {src}")
+        shutil.copyfile(src, dest)
+    return dest

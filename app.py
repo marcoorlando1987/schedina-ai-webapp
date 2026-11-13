@@ -1,7 +1,6 @@
 """Interfaccia web: legge le predizioni calcolate dal job offline (nessun training qui)."""
 from __future__ import annotations
 
-import shutil
 import sqlite3
 import tempfile
 from pathlib import Path
@@ -11,7 +10,7 @@ import pandas as pd
 import streamlit as st
 
 from schedina_ai import store
-from schedina_ai.config import REPORT_TZ, db_path
+from schedina_ai.config import REPORT_TZ, db_source
 
 st.set_page_config(page_title="Schedina AI", page_icon="⚽", layout="wide")
 
@@ -22,13 +21,11 @@ GIORNI = ["lun", "mar", "mer", "gio", "ven", "sab", "dom"]
 
 @st.cache_data(ttl=300, show_spinner=False)
 def load_data():
-    path = db_path()
-    if not path.exists():
-        return None
-    # copia locale: robusto anche se il file sta su un volume di rete (bucket montato)
     with tempfile.TemporaryDirectory() as tmp:
-        local = Path(tmp) / "schedina.db"
-        shutil.copyfile(path, local)
+        try:
+            local = store.materialize_db(db_source(), Path(tmp) / "schedina.db")
+        except store.DbUnavailable as exc:
+            return str(exc)
         conn = sqlite3.connect(f"file:{local}?mode=ro", uri=True)
         try:
             preds = store.load_predictions(conn)
@@ -132,8 +129,8 @@ st.title("🎯 Schedina AI")
 st.caption("Probabilità 1X2 e gol attesi per Serie A, Premier League, La Liga, Bundesliga e Ligue 1.")
 
 loaded = load_data()
-if loaded is None:
-    st.error("Database non trovato. Esegui `python -m schedina_ai run` per generare le previsioni.")
+if isinstance(loaded, str):
+    st.error(f"{loaded}. Esegui `python -m schedina_ai run` o controlla `SCHEDINA_DB_URL`.")
     st.stop()
 preds, meta = loaded
 

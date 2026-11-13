@@ -42,6 +42,18 @@ def db_path() -> Path:
     return data_dir() / "schedina.db"
 
 
+# DB pubblicato ogni notte dal workflow GitHub Actions su un branch `data` (vedi README).
+DEFAULT_DB_URL = "https://raw.githubusercontent.com/marcoorlando1987/schedina-ai-webapp/data/schedina.db"
+
+
+def db_source() -> str:
+    """Dove l'app legge il DB: SCHEDINA_DB_URL > file locale (se esiste) > branch `data` su GitHub."""
+    env = os.environ.get("SCHEDINA_DB_URL")
+    if env:
+        return env
+    return str(db_path()) if db_path().exists() else DEFAULT_DB_URL
+
+
 def api_token() -> str | None:
     return os.environ.get("FOOTBALL_DATA_API_TOKEN") or os.environ.get("API_TOKEN")
 

@@ -46,7 +46,35 @@ pytest                                    # test (dati sintetici, nessuna rete)
 Opzioni di `run`: `--days-ahead 7`, `--days-back 7`, `--skip-eval`, `--model {baseline,logreg,xgb,poisson}`.
 I dati vanno in `data/` (o `SCHEDINA_DATA_DIR`). I CSV delle stagioni chiuse non vengono riscaricati.
 
-## Pubblicazione su Cloud Run (consigliata)
+## Pubblicazione gratuita: Streamlit Community Cloud + GitHub Actions (consigliata per partire)
+
+Costo zero. L'app è su Streamlit Community Cloud; un workflow di GitHub Actions aggiorna le previsioni
+ogni notte e pubblica il DB sul branch `data`, che l'app legge via HTTPS.
+Il repo deve essere **pubblico** (niente segreti nel codice: il token sta nei GitHub Secrets).
+
+1. **Unisci il codice in `main`** (i workflow `schedule` girano solo dal branch di default).
+2. **Aggiungi il secret**: repo → Settings → Secrets and variables → Actions → `FOOTBALL_DATA_API_TOKEN`.
+3. **Primo popolamento**: tab Actions → "Aggiorna previsioni" → *Run workflow*. Crea il branch `data`
+   con `schedina.db` (un solo commit, sovrascritto a ogni giro: il repo non cresce e `main` non cambia,
+   quindi l'app non viene ridistribuita ogni giorno). Poi gira da solo alle 05:17 UTC.
+4. **Deploy dell'app**: share.streamlit.io → *New app* → questo repo, branch `main`, file `app.py`,
+   Python 3.12 (Advanced settings). Streamlit installa `requirements.txt`, che è volutamente leggero
+   (niente scikit-learn/xgboost: l'app legge soltanto). Senza altra configurazione l'app scarica il DB da
+   `https://raw.githubusercontent.com/marcoorlando1987/schedina-ai-webapp/data/schedina.db`
+   (`DEFAULT_DB_URL` in `schedina_ai/config.py`; se fai un fork imposta `SCHEDINA_DB_URL` o modifica la costante).
+5. Per i test c'è un secondo workflow (`tests.yml`) su push e pull request.
+
+Da sapere:
+* L'app ha una cache di 5 minuti sul DB, e raw.githubusercontent.com ne ha una sua di pochi minuti.
+* Streamlit Community Cloud manda in sleep le app senza traffico (12 ore) e **non supporta domini
+  personalizzati**: per quelli vedi la sezione Cloud Run.
+* GitHub disattiva i workflow pianificati dopo 60 giorni senza attività nel repo; i push notturni sul
+  branch `data` dovrebbero bastare, altrimenti li riattivi dalla tab Actions. Gli orari possono slittare
+  di qualche decina di minuti.
+* Se un giro fallisce (token, API, fonte dati giù) il DB precedente resta pubblicato e GitHub ti manda
+  l'email di errore; l'app mostra sempre "Ultimo aggiornamento".
+
+## Alternativa: Cloud Run (dominio proprio)
 
 Stessa immagine per app e job; i dati stanno in un bucket GCS montato su `/data`.
 Verifica i flag con `gcloud ... --help`: possono cambiare.
@@ -85,9 +113,6 @@ gcloud run jobs execute schedina-job --region $REGION --wait   # primo popolamen
 
 Dominio personalizzato: mapping di dominio di Cloud Run (se la regione lo supporta) oppure
 Load Balancer HTTPS con NEG serverless.
-Alternativa gratuita e immediata: **Streamlit Community Cloud** (indirizzo `*.streamlit.app`); in quel caso
-committa a mano (`git add -f data/schedina.db`) un DB generato in locale oppure aggiorna il DB con un workflow GitHub Actions
-pianificato.
 
 ## Limiti da conoscere
 

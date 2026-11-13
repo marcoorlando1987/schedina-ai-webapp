@@ -9,9 +9,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY requirements.txt .
+COPY requirements.txt requirements-job.txt ./
 # xgboost-cpu: stesso modulo `xgboost`, senza le librerie CUDA (immagine molto più leggera)
-RUN sed -i 's/^xgboost.*/xgboost-cpu>=2.1/' requirements.txt && pip install -r requirements.txt
+RUN sed -i 's/^xgboost.*/xgboost-cpu>=2.1/' requirements-job.txt && pip install -r requirements-job.txt
 
 COPY schedina_ai ./schedina_ai
 COPY app.py ./

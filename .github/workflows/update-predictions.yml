@@ -1,0 +1,62 @@
+name: Aggiorna previsioni
+
+# Ogni notte: scarica i dati, valuta/addestra, calcola le previsioni e pubblica il DB
+# sul branch orfano `data` (un solo commit, sovrascritto: il repo non cresce e `main`
+# non cambia, quindi l'app su Streamlit Cloud non viene ridistribuita ogni giorno).
+# Richiede il secret FOOTBALL_DATA_API_TOKEN. I workflow `schedule` girano solo dal branch di default.
+
+on:
+  schedule:
+    - cron: "17 5 * * *"   # 05:17 UTC (06:17 o 07:17 in Italia). Minuto "storto" per evitare i picchi
+  workflow_dispatch:        # esecuzione manuale dalla tab Actions
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-predictions
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-job.txt
+
+      - name: Installa dipendenze
+        run: pip install -r requirements-job.txt
+
+      - name: Ripristina il DB precedente
+        # serve a congelare le previsioni delle partite già iniziate e a tenere lo storico
+        run: |
+          mkdir -p data
+          if git ls-remote --exit-code --heads origin data >/dev/null 2>&1; then
+            git fetch --depth=1 origin data
+            git show FETCH_HEAD:schedina.db > data/schedina.db || rm -f data/schedina.db
+          fi
+
+      - name: Aggiorna dati e previsioni
+        env:
+          FOOTBALL_DATA_API_TOKEN: ${{ secrets.FOOTBALL_DATA_API_TOKEN }}
+        run: python -m schedina_ai run
+
+      - name: Pubblica il DB sul branch data
+        run: |
+          set -euo pipefail
+          cp data/schedina.db "$RUNNER_TEMP/schedina.db"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git branch -D data-publish 2>/dev/null || true
+          git checkout --orphan data-publish
+          git rm -rf --quiet --ignore-unmatch .
+          cp "$RUNNER_TEMP/schedina.db" schedina.db
+          git add schedina.db
+          git commit -q -m "Aggiorna previsioni $(date -u +%F)"
+          git push --force origin HEAD:refs/heads/data

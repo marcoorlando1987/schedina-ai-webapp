@@ -82,3 +82,49 @@ def test_missing_token_or_denied_access_fail_loudly():
 
     with pytest.raises(FixturesError):
         fetch_fixtures("bad", date(2026, 1, 1), date(2026, 1, 8), session=Denied())
+
+
+def test_materialize_db_from_path_and_url(tmp_path, monkeypatch):
+    from schedina_ai import config
+    db = tmp_path / "src.db"
+    conn = store.connect(db)
+    store.set_meta(conn, "model", "logreg")
+    conn.commit()
+    conn.close()
+
+    out = store.materialize_db(db, tmp_path / "copy" / "x.db")
+    assert store.get_meta(store.connect(out), "model") == "logreg"
+
+    class Resp:
+        def __init__(self, content, code=200):
+            self.content, self.status_code = content, code
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise RuntimeError(f"HTTP {self.status_code}")
+
+    class Sess:
+        def __init__(self, resp):
+            self.resp = resp
+
+        def get(self, url, timeout=None):
+            return self.resp
+
+    ok = store.materialize_db("https://example.test/schedina.db", tmp_path / "u.db", Sess(Resp(db.read_bytes())))
+    assert store.get_meta(store.connect(ok), "model") == "logreg"
+    with pytest.raises(store.DbUnavailable):  # 404 (branch data non ancora creato)
+        store.materialize_db("https://example.test/x.db", tmp_path / "n.db", Sess(Resp(b"", 404)))
+    with pytest.raises(store.DbUnavailable):  # pagina HTML al posto del DB
+        store.materialize_db("https://example.test/x.db", tmp_path / "h.db", Sess(Resp(b"<html>")))
+    with pytest.raises(store.DbUnavailable):
+        store.materialize_db(tmp_path / "manca.db", tmp_path / "m.db")
+
+    # precedenza: env > file locale > URL di default su GitHub
+    monkeypatch.setenv("SCHEDINA_DATA_DIR", str(tmp_path / "vuoto"))
+    monkeypatch.delenv("SCHEDINA_DB_URL", raising=False)
+    assert config.db_source() == config.DEFAULT_DB_URL
+    (tmp_path / "vuoto").mkdir()
+    (tmp_path / "vuoto" / "schedina.db").write_bytes(b"x")
+    assert config.db_source().endswith("schedina.db") and "http" not in config.db_source()
+    monkeypatch.setenv("SCHEDINA_DB_URL", "https://altro.test/db")
+    assert config.db_source() == "https://altro.test/db"
