@@ -1,0 +1,2 @@
+-r requirements-job.txt
+pytest>=8

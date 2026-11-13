@@ -1,0 +1,6 @@
+# Dipendenze del JOB di aggiornamento (addestramento) e dell'immagine Docker.
+-r requirements.txt
+scipy>=1.11
+scikit-learn>=1.4
+xgboost>=2.0
+rapidfuzz>=3.0

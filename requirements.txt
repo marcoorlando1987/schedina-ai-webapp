@@ -1,8 +1,6 @@
-streamlit
-pandas
-numpy
-xgboost
-scikit-learn
-requests
-rapidfuzz
-openpyxl
+# Dipendenze dell'APP web (Streamlit Community Cloud installa questo file).
+# L'app legge solo il DB: niente scikit-learn/xgboost/scipy qui.
+streamlit>=1.50,<2
+pandas>=2.2,<4
+numpy>=1.26,<3
+requests>=2.31
