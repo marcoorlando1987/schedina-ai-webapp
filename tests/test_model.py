@@ -59,6 +59,6 @@ def test_report_builds_and_has_all_sections(matches):
     frame, _ = build_training_frame(matches)
     text = build_report(frame, kinds=("baseline", "logreg", "poisson", "blend"))
     for section in ("Modelli", "Per stagione", "Per lega", "Calibrazione", "Medie per esito",
-                    "Quando il modello è sicuro", "Mercato"):
+                    "Quando il modello è sicuro", "Mercato", "Test economico", "value bet"):
         assert section in text, section
     assert "nan" not in text.lower().replace("finance", "")

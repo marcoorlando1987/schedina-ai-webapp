@@ -158,7 +158,7 @@ def build_training_frame(matches: pd.DataFrame) -> tuple[pd.DataFrame, RatingEng
     engine = RatingEngine()
     rows: list[dict] = []
     matches = matches.copy()
-    for col in ("sh_h", "sh_a", "sot_h", "sot_a"):  # compatibilità con dati senza tiri
+    for col in ("sh_h", "sh_a", "sot_h", "sot_a", "odds_h", "odds_d", "odds_a"):  # dati senza queste colonne
         if col not in matches.columns:
             matches[col] = math.nan
     for r in matches.sort_values(["date", "league"], kind="stable").itertuples(index=False):
@@ -167,6 +167,7 @@ def build_training_frame(matches: pd.DataFrame) -> tuple[pd.DataFrame, RatingEng
             "league": r.league, "season": r.season, "date": r.date,
             "home": r.home, "away": r.away, "hg": r.hg, "ag": r.ag, "result": r.result,
             "mkt_h": r.mkt_h, "mkt_d": r.mkt_d, "mkt_a": r.mkt_a,
+            "odds_h": r.odds_h, "odds_d": r.odds_d, "odds_a": r.odds_a,
             **feats,
         })
         engine.update(r.league, r.home, r.away, r.date, r.hg, r.ag,
