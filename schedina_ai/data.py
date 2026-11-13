@@ -31,7 +31,7 @@ ODDS_TRIPLES = [
 
 MATCH_COLUMNS = [
     "league", "season", "date", "home", "away", "hg", "ag", "result",
-    "mkt_h", "mkt_d", "mkt_a",
+    "mkt_h", "mkt_d", "mkt_a", "sh_h", "sh_a", "sot_h", "sot_a",
 ]
 
 
@@ -92,6 +92,10 @@ def parse_csv(path: Path, league_name: str, season: str) -> pd.DataFrame:
         "ag": pd.to_numeric(raw["FTAG"], errors="coerce"),
         "result": raw["FTR"].astype("string").str.strip(),
     })
+
+    # tiri (HS/AS) e tiri in porta (HST/AST): segnale meno rumoroso dei gol; NaN se assenti
+    for dst, src in (("sh_h", "HS"), ("sh_a", "AS"), ("sot_h", "HST"), ("sot_a", "AST")):
+        out[dst] = pd.to_numeric(raw[src], errors="coerce") if src in raw.columns else np.nan
 
     # quote -> probabilità di mercato normalizzate (tolto il margine)
     odds = {k: pd.Series(np.nan, index=raw.index) for k in "hda"}
