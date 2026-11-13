@@ -1,8 +1,8 @@
-streamlit
-pandas
-numpy
-xgboost
-scikit-learn
-requests
-rapidfuzz
-openpyxl
+streamlit>=1.50,<2
+pandas>=2.2,<4
+numpy>=1.26,<3
+scipy>=1.11
+scikit-learn>=1.4
+xgboost>=2.0
+requests>=2.31
+rapidfuzz>=3.0
